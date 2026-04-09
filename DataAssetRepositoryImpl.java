@@ -312,6 +312,15 @@ public class DataAssetRepositoryImpl implements DataAssetRepository {
                 String key = filter.getFilterName();
                 if (filterParamsMap.containsKey(key)) {
                    extractedParams.put(key, filterParamsMap.get(key));
+                } else {
+                   // Handle encoding issues - try to find parameter with similar name
+                   filterParamsMap.keySet().stream()
+                         .filter(paramKey -> paramKey.startsWith(key) || key.startsWith(paramKey))
+                         .findFirst()
+                         .ifPresent(matchedKey -> {
+                            extractedParams.put(key, filterParamsMap.get(matchedKey));
+                            log.warn("Parameter name mismatch: expected '{}' but found '{}'. Using matched value.", key, matchedKey);
+                         });
                 }
              });
        return extractedParams;
@@ -321,7 +330,7 @@ public class DataAssetRepositoryImpl implements DataAssetRepository {
        if (hasPrimary && hasSecondary) {
           return selectQueryForPrimaryAndNested() + nestedWhereClause+ whereClauseForPrimaryAndNestedQuery() + whereClause  ;
        } else if (hasSecondary) {
-          return  selectQueryForNested()+ nestedWhereClause +whereClauseForNestedQuery();
+          return  selectQueryForNested()+ nestedWhereClause +whereClauseForNestedQuery(whereClause);
        } else {
           return "SELECT * FROM " + tableName + (whereClause.isEmpty() ? "" : whereClause);
        }
@@ -331,16 +340,17 @@ public class DataAssetRepositoryImpl implements DataAssetRepository {
        if (hasPrimary && hasSecondary) {
           return "SELECT count(1) FROM " + tableName + whereClause + AND + nestedCondition + nestedWhereClause + " );";
        } else if (hasSecondary) {
-          return  selectCountQueryForNested()+ nestedWhereClause +whereClauseForNestedQuery();
+          return  selectCountQueryForNested()+ nestedWhereClause +whereClauseForNestedQuery(whereClause);
        } else {
           return "SELECT count(1) FROM " + tableName + (whereClause.isEmpty() ? "" : whereClause);
        }
     }
 
-    private String whereClauseForNestedQuery() {
+    private String whereClauseForNestedQuery(String whereClause) {
        return " )" +
              "  ) AS filtered_json " +
              "FROM rdh_api_pod2.core_banking_common_data_model_reference_codes " +
+             (whereClause.isEmpty() ? "" : whereClause) +
              ")a where a.filtered_json is not null";
     }
 
