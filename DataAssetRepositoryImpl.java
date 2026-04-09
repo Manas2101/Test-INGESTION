@@ -97,12 +97,16 @@ public class DataAssetRepositoryImpl implements DataAssetRepository {
 
     public Page<JSONObject> findAllCoreBankingDetails(String tableName, Map<String, String> filterParamsMap, PageRequest page, List<FilterDto> filtersDtos) {
        log.info("RefdataGenericAPI - inside DataAssetRepositoryImpl - findAllCoreBankingDetails() for DataAsset: " + tableName);
+       log.info("Incoming filterParamsMap: {}", filterParamsMap);
+       log.info("FilterDto list: {}", filtersDtos);
 
        String rdhLastIngestionTimestamp = filterParamsMap.remove("rdhLastIngestionTimestamp");
        
        //differentiating primary and secondary query params
        Map<String, String> filterParamsPrimary = extractFilterParams(filterParamsMap, filtersDtos, "primary");
        Map<String, String> filterParamsSecondary = extractFilterParams(filterParamsMap, filtersDtos, "secondary");
+       log.info("Primary filters extracted: {}", filterParamsPrimary);
+       log.info("Secondary filters extracted: {}", filterParamsSecondary);
        String whereClause = "";
        if(filterParamsPrimary.isEmpty() && filterParamsSecondary.isEmpty()){
           whereClause="";
@@ -121,15 +125,20 @@ public class DataAssetRepositoryImpl implements DataAssetRepository {
        }
        
        String nestedWhereClause = getWhereClauseSecondary(filterParamsSecondary);
+       log.info("Nested WHERE clause: {}", nestedWhereClause);
        String nestedCondition = " EXISTS (SELECT 1 FROM jsonb_array_elements(jsondata->'coreBankingSourceSystemReferenceData') AS elem";
        String selectSql = buildSelectSql(tableName, whereClause, nestedWhereClause, !filterParamsSecondary.isEmpty(), !filterParamsPrimary.isEmpty());
        String selectSqlWithPagination= selectSql + ORDER_BY_LIMIT_OFFSET;
        String countSql = buildCountSql(tableName, whereClause, nestedCondition, nestedWhereClause, !filterParamsSecondary.isEmpty(), !filterParamsPrimary.isEmpty());
+       
+       log.info("Final SELECT SQL: {}", selectSqlWithPagination);
+       log.info("Final COUNT SQL: {}", countSql);
 
        MapSqlParameterSource selectSqlParams = getSelectSqlParams(page, filterParamsMap);
        if (rdhLastIngestionTimestamp != null && !rdhLastIngestionTimestamp.isEmpty()) {
           selectSqlParams.addValue("rdhLastIngestionTimestamp", rdhLastIngestionTimestamp);
        }
+       log.info("SQL Parameters: {}", selectSqlParams.getValues());
 
        try {
           long count = jdbcTemplate.queryForObject(countSql, selectSqlParams, Long.class);
