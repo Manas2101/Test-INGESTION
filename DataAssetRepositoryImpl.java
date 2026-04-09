@@ -101,17 +101,20 @@ public class DataAssetRepositoryImpl implements DataAssetRepository {
        log.info("FilterDto list: {}", filtersDtos);
 
        String rdhLastIngestionTimestamp = filterParamsMap.remove("rdhLastIngestionTimestamp");
+       String countryCode = filterParamsMap.remove("countryCode");
+       String sourceSystemName = filterParamsMap.remove("sourceSystemName");
        
-       //differentiating primary and secondary query params
+       log.info("Direct filters - countryCode: {}, sourceSystemName: {}", countryCode, sourceSystemName);
+       
+       // Handle remaining filters using the existing system
        Map<String, String> filterParamsPrimary = extractFilterParams(filterParamsMap, filtersDtos, "primary");
        Map<String, String> filterParamsSecondary = extractFilterParams(filterParamsMap, filtersDtos, "secondary");
        log.info("Primary filters extracted: {}", filterParamsPrimary);
        log.info("Secondary filters extracted: {}", filterParamsSecondary);
+       
        String whereClause = "";
-       if(filterParamsPrimary.isEmpty() && filterParamsSecondary.isEmpty()){
-          whereClause="";
-       }else {
-          whereClause = !getWhereClause(filterParamsPrimary).isEmpty() ? getWhereClause(filterParamsPrimary) : " where";
+       if(!filterParamsPrimary.isEmpty()){
+          whereClause = getWhereClause(filterParamsPrimary);
        }
        
        if (rdhLastIngestionTimestamp != null && !rdhLastIngestionTimestamp.isEmpty()) {
@@ -124,12 +127,28 @@ public class DataAssetRepositoryImpl implements DataAssetRepository {
           }
        }
        
-       String nestedWhereClause = getWhereClauseSecondary(filterParamsSecondary);
+       // Build nested WHERE clause for countryCode and sourceSystemName
+       StringBuilder nestedConditions = new StringBuilder();
+       if (countryCode != null && !countryCode.isEmpty()) {
+          nestedConditions.append("elem->>'countryCode' = :countryCode");
+       }
+       if (sourceSystemName != null && !sourceSystemName.isEmpty()) {
+          if (nestedConditions.length() > 0) {
+             nestedConditions.append(" AND ");
+          }
+          nestedConditions.append("elem->>'sourceSystemName' = :sourceSystemName");
+       }
+       
+       String nestedWhereClause = "";
+       if (nestedConditions.length() > 0) {
+          nestedWhereClause = " WHERE " + nestedConditions.toString();
+       }
        log.info("Nested WHERE clause: {}", nestedWhereClause);
        String nestedCondition = " EXISTS (SELECT 1 FROM jsonb_array_elements(jsondata->'coreBankingSourceSystemReferenceData') AS elem";
-       String selectSql = buildSelectSql(tableName, whereClause, nestedWhereClause, !filterParamsSecondary.isEmpty(), !filterParamsPrimary.isEmpty());
+       boolean hasNestedFilters = !nestedWhereClause.isEmpty() || !filterParamsSecondary.isEmpty();
+       String selectSql = buildSelectSql(tableName, whereClause, nestedWhereClause, hasNestedFilters, !filterParamsPrimary.isEmpty());
        String selectSqlWithPagination= selectSql + ORDER_BY_LIMIT_OFFSET;
-       String countSql = buildCountSql(tableName, whereClause, nestedCondition, nestedWhereClause, !filterParamsSecondary.isEmpty(), !filterParamsPrimary.isEmpty());
+       String countSql = buildCountSql(tableName, whereClause, nestedCondition, nestedWhereClause, hasNestedFilters, !filterParamsPrimary.isEmpty());
        
        log.info("Final SELECT SQL: {}", selectSqlWithPagination);
        log.info("Final COUNT SQL: {}", countSql);
@@ -139,6 +158,12 @@ public class DataAssetRepositoryImpl implements DataAssetRepository {
        allFilterParams.putAll(filterParamsSecondary);
        if (rdhLastIngestionTimestamp != null && !rdhLastIngestionTimestamp.isEmpty()) {
           allFilterParams.put("rdhLastIngestionTimestamp", rdhLastIngestionTimestamp);
+       }
+       if (countryCode != null && !countryCode.isEmpty()) {
+          allFilterParams.put("countryCode", countryCode);
+       }
+       if (sourceSystemName != null && !sourceSystemName.isEmpty()) {
+          allFilterParams.put("sourceSystemName", sourceSystemName);
        }
        
        MapSqlParameterSource selectSqlParams = getSelectSqlParams(page, allFilterParams);
