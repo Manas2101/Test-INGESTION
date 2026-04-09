@@ -116,9 +116,9 @@ public class DataAssetRepositoryImpl implements DataAssetRepository {
        
        if (rdhLastIngestionTimestamp != null && !rdhLastIngestionTimestamp.isEmpty()) {
           log.info("Applying rdhLastIngestionTimestamp filter: {}", rdhLastIngestionTimestamp);
-          String timestampCondition = " AND to_char((jsondata->>'rdhLastIngestionTimestamp')::date, 'YYYYMMDD') > :rdhLastIngestionTimestamp";
+          String timestampCondition = " AND (jsondata->>'rdhLastIngestionTimestamp')::date > :rdhLastIngestionTimestamp::date";
           if (whereClause.isEmpty()) {
-             whereClause = " WHERE to_char((jsondata->>'rdhLastIngestionTimestamp')::date, 'YYYYMMDD') > :rdhLastIngestionTimestamp";
+             whereClause = " WHERE (jsondata->>'rdhLastIngestionTimestamp')::date > :rdhLastIngestionTimestamp::date";
           } else {
              whereClause = whereClause + timestampCondition;
           }
