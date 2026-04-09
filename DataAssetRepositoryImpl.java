@@ -134,10 +134,14 @@ public class DataAssetRepositoryImpl implements DataAssetRepository {
        log.info("Final SELECT SQL: {}", selectSqlWithPagination);
        log.info("Final COUNT SQL: {}", countSql);
 
-       MapSqlParameterSource selectSqlParams = getSelectSqlParams(page, filterParamsMap);
+       Map<String, String> allFilterParams = new HashMap<>();
+       allFilterParams.putAll(filterParamsPrimary);
+       allFilterParams.putAll(filterParamsSecondary);
        if (rdhLastIngestionTimestamp != null && !rdhLastIngestionTimestamp.isEmpty()) {
-          selectSqlParams.addValue("rdhLastIngestionTimestamp", rdhLastIngestionTimestamp);
+          allFilterParams.put("rdhLastIngestionTimestamp", rdhLastIngestionTimestamp);
        }
+       
+       MapSqlParameterSource selectSqlParams = getSelectSqlParams(page, allFilterParams);
        log.info("SQL Parameters: {}", selectSqlParams.getValues());
 
        try {
