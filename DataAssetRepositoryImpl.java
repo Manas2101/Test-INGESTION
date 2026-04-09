@@ -98,6 +98,8 @@ public class DataAssetRepositoryImpl implements DataAssetRepository {
     public Page<JSONObject> findAllCoreBankingDetails(String tableName, Map<String, String> filterParamsMap, PageRequest page, List<FilterDto> filtersDtos) {
        log.info("RefdataGenericAPI - inside DataAssetRepositoryImpl - findAllCoreBankingDetails() for DataAsset: " + tableName);
 
+       String rdhLastIngestionTimestamp = filterParamsMap.remove("rdhLastIngestionTimestamp");
+       
        //differentiating primary and secondary query params
        Map<String, String> filterParamsPrimary = extractFilterParams(filterParamsMap, filtersDtos, "primary");
        Map<String, String> filterParamsSecondary = extractFilterParams(filterParamsMap, filtersDtos, "secondary");
@@ -107,6 +109,17 @@ public class DataAssetRepositoryImpl implements DataAssetRepository {
        }else {
           whereClause = !getWhereClause(filterParamsPrimary).isEmpty() ? getWhereClause(filterParamsPrimary) : " where";
        }
+       
+       if (rdhLastIngestionTimestamp != null && !rdhLastIngestionTimestamp.isEmpty()) {
+          log.info("Applying rdhLastIngestionTimestamp filter: {}", rdhLastIngestionTimestamp);
+          String timestampCondition = " AND jsondata->>'rdhLastIngestionTimestamp' > :rdhLastIngestionTimestamp";
+          if (whereClause.isEmpty()) {
+             whereClause = " WHERE jsondata->>'rdhLastIngestionTimestamp' > :rdhLastIngestionTimestamp";
+          } else {
+             whereClause = whereClause + timestampCondition;
+          }
+       }
+       
        String nestedWhereClause = getWhereClauseSecondary(filterParamsSecondary);
        String nestedCondition = " EXISTS (SELECT 1 FROM jsonb_array_elements(jsondata->'coreBankingSourceSystemReferenceData') AS elem";
        String selectSql = buildSelectSql(tableName, whereClause, nestedWhereClause, !filterParamsSecondary.isEmpty(), !filterParamsPrimary.isEmpty());
@@ -114,6 +127,9 @@ public class DataAssetRepositoryImpl implements DataAssetRepository {
        String countSql = buildCountSql(tableName, whereClause, nestedCondition, nestedWhereClause, !filterParamsSecondary.isEmpty(), !filterParamsPrimary.isEmpty());
 
        MapSqlParameterSource selectSqlParams = getSelectSqlParams(page, filterParamsMap);
+       if (rdhLastIngestionTimestamp != null && !rdhLastIngestionTimestamp.isEmpty()) {
+          selectSqlParams.addValue("rdhLastIngestionTimestamp", rdhLastIngestionTimestamp);
+       }
 
        try {
           long count = jdbcTemplate.queryForObject(countSql, selectSqlParams, Long.class);
@@ -134,83 +150,6 @@ public class DataAssetRepositoryImpl implements DataAssetRepository {
           log.error("xMatter Alert Trigger - RefdataGenericAPI Exception occurred in DataAssetRepositoryImpl - findAllCoreBankingDetails(): Query failed!: ", e);
           throw new InvalidRequestParamException(FAILED_TO_GET_REQUESTED_DATA);
        }
-    }
-
-    @Override
-    public Page<JSONObject> findAllCoreBankingDetailsAfterTimestamp(String tableName, Map<String, String> filterParamsMap, PageRequest page, List<FilterDto> filtersDtos, String rdhLastIngestionTimestamp) {
-       log.info("RefdataGenericAPI - inside DataAssetRepositoryImpl - findAllCoreBankingDetailsAfterTimestamp() for DataAsset: {} with timestamp filter: {}", tableName, rdhLastIngestionTimestamp);
-
-       Map<String, String> filterParamsPrimary = extractFilterParams(filterParamsMap, filtersDtos, "primary");
-       Map<String, String> filterParamsSecondary = extractFilterParams(filterParamsMap, filtersDtos, "secondary");
-       String whereClause = "";
-       if(filterParamsPrimary.isEmpty() && filterParamsSecondary.isEmpty()){
-          whereClause="";
-       }else {
-          whereClause = !getWhereClause(filterParamsPrimary).isEmpty() ? getWhereClause(filterParamsPrimary) : " where";
-       }
-       
-       String timestampCondition = " AND jsondata->>'rdhLastIngestionTimestamp' > :rdhLastIngestionTimestamp";
-       if (whereClause.isEmpty()) {
-          whereClause = " WHERE jsondata->>'rdhLastIngestionTimestamp' > :rdhLastIngestionTimestamp";
-       } else {
-          whereClause = whereClause + timestampCondition;
-       }
-       
-       String nestedWhereClause = getWhereClauseSecondary(filterParamsSecondary);
-       String nestedCondition = " EXISTS (SELECT 1 FROM jsonb_array_elements(jsondata->'coreBankingSourceSystemReferenceData') AS elem";
-       String selectSql = buildSelectSqlWithTimestamp(tableName, whereClause, nestedWhereClause, !filterParamsSecondary.isEmpty(), !filterParamsPrimary.isEmpty());
-       String selectSqlWithPagination = selectSql + ORDER_BY_LIMIT_OFFSET;
-       String countSql = buildCountSqlWithTimestamp(tableName, whereClause, nestedCondition, nestedWhereClause, !filterParamsSecondary.isEmpty(), !filterParamsPrimary.isEmpty());
-
-       MapSqlParameterSource selectSqlParams = getSelectSqlParams(page, filterParamsMap);
-       selectSqlParams.addValue("rdhLastIngestionTimestamp", rdhLastIngestionTimestamp);
-
-       try {
-          long count = jdbcTemplate.queryForObject(countSql, selectSqlParams, Long.class);
-          if (count <= 0) throw new RecordNotFoundException();
-
-          List<String> rows = jdbcTemplate.query(selectSqlWithPagination, selectSqlParams, (ResultSet rs, int rowNum) -> mapDataRow(rs));
-          if (rows.isEmpty()) throw new RecordNotFoundException();
-
-          List<JSONObject> collect = rows.stream().map(this::convertToJson).toList();
-          return new Page<>(collect, page, count);
-       } catch (CannotGetJdbcConnectionException e) {
-          log.error("xMatter Alert Trigger-RefdataGenericAPI JdbcConnection Exception occurred in DataAssetRepositoryImpl - findAllCoreBankingDetailsAfterTimestamp(): Query failed!: ", e);
-          throw e;
-       } catch (RecordNotFoundException e) {
-          log.error(NO_RECORDS_FOUND_FOR_GIVEN_CRITERIA);
-          throw e;
-       } catch (Exception e) {
-          log.error("xMatter Alert Trigger - RefdataGenericAPI Exception occurred in DataAssetRepositoryImpl - findAllCoreBankingDetailsAfterTimestamp(): Query failed!: ", e);
-          throw new InvalidRequestParamException(FAILED_TO_GET_REQUESTED_DATA);
-       }
-    }
-
-    private String buildSelectSqlWithTimestamp(String tableName, String whereClause, String nestedWhereClause, boolean hasSecondary, boolean hasPrimary) {
-       if (hasPrimary && hasSecondary) {
-          return selectQueryForPrimaryAndNested() + nestedWhereClause + whereClauseForPrimaryAndNestedQuery() + whereClause;
-       } else if (hasSecondary) {
-          return selectQueryForNested() + nestedWhereClause + whereClauseForNestedQueryWithTimestamp(whereClause);
-       } else {
-          return "SELECT * FROM " + tableName + whereClause;
-       }
-    }
-
-    private String buildCountSqlWithTimestamp(String tableName, String whereClause, String nestedCondition, String nestedWhereClause, boolean hasSecondary, boolean hasPrimary) {
-       if (hasPrimary && hasSecondary) {
-          return "SELECT count(1) FROM " + tableName + whereClause + AND + nestedCondition + nestedWhereClause + " );";
-       } else if (hasSecondary) {
-          return selectCountQueryForNested() + nestedWhereClause + whereClauseForNestedQueryWithTimestamp(whereClause);
-       } else {
-          return "SELECT count(1) FROM " + tableName + whereClause;
-       }
-    }
-
-    private String whereClauseForNestedQueryWithTimestamp(String whereClause) {
-       return " )" +
-             "  ) AS filtered_json " +
-             "FROM rdh_api_pod2.core_banking_common_data_model_reference_codes " + whereClause +
-             ")a where a.filtered_json is not null";
     }
 
     @Override

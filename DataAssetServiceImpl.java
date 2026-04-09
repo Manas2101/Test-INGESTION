@@ -69,11 +69,6 @@ public class DataAssetServiceImpl implements DataAssetService {
     @Override
     public Page<JSONObject> getDataWithNestedParams(Route route, PageRequest pageRequest, Map<String, String> filterMap, List<FilterDto> filters) {
         filterMap.remove(Constants.GUID);
-        String rdhLastIngestionTimestamp = filterMap.remove("rdhLastIngestionTimestamp");
-        if (rdhLastIngestionTimestamp != null && !rdhLastIngestionTimestamp.isEmpty()) {
-            log.info("Fetching records ingested after: {}", rdhLastIngestionTimestamp);
-            return dataAssetRepository.findAllCoreBankingDetailsAfterTimestamp(route.getAssetName(), filterMap, pageRequest, filters, rdhLastIngestionTimestamp);
-        }
         return dataAssetRepository.findAllCoreBankingDetails(route.getAssetName(), filterMap, pageRequest, filters);
     }
 

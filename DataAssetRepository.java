@@ -28,7 +28,5 @@ public interface DataAssetRepository {
 
     Page<JSONObject> findAllCoreBankingDetails(String assetName, Map<String, String> filters, PageRequest pageRequest, List<FilterDto> filterDto);
 
-    Page<JSONObject> findAllCoreBankingDetailsAfterTimestamp(String assetName, Map<String, String> filters, PageRequest pageRequest, List<FilterDto> filterDto, String rdhLastIngestionTimestamp);
-
     Page<JSONObject> findMdmDetails(Route route, Map<String, String> filterMap, Pageable pageRequest);
 }
