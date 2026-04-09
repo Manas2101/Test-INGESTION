@@ -143,6 +143,8 @@ public class DataAssetRepositoryImpl implements DataAssetRepository {
        
        MapSqlParameterSource selectSqlParams = getSelectSqlParams(page, allFilterParams);
        log.info("SQL Parameters: {}", selectSqlParams.getValues());
+       log.info("All filter params being bound: {}", allFilterParams);
+       log.info("About to execute COUNT query with {} parameters", selectSqlParams.getValues().size());
 
        try {
           long count = jdbcTemplate.queryForObject(countSql, selectSqlParams, Long.class);
@@ -351,7 +353,7 @@ public class DataAssetRepositoryImpl implements DataAssetRepository {
              "  ) AS filtered_json " +
              "FROM rdh_api_pod2.core_banking_common_data_model_reference_codes " +
              (whereClause.isEmpty() ? "" : whereClause) +
-             ")a where a.filtered_json is not null";
+             " )a where a.filtered_json is not null";
     }
 
     private String whereClauseForPrimaryAndNestedQuery() {
