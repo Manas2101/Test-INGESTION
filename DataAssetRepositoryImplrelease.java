@@ -38,6 +38,8 @@ import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 
 import org.springframework.stereotype.Repository;
 
+import org.springframework.util.StringUtils;
+
  
 
 import java.sql.ResultSet;
@@ -196,13 +198,17 @@ public class DataAssetRepositoryImpl implements DataAssetRepository {
 
                               log.info("RefdataGenericAPI - inside DataAssetRepositoryImpl - findAllCoreBankingDetails() for DataAsset: " + tableName);
 
+               Map<String, String> workingFilterParams = new HashMap<>(filterParamsMap);
+
+               String rdhLastIngestionTimestamp = workingFilterParams.remove("rdhLastIngestionTimestamp");
+
  
 
                               //differentiating primary and secondary query params
 
-                              Map<String, String> filterParamsPrimary = extractFilterParams(filterParamsMap, filtersDtos, "primary");
+                              Map<String, String> filterParamsPrimary = extractFilterParams(workingFilterParams, filtersDtos, "primary");
 
-                              Map<String, String> filterParamsSecondary = extractFilterParams(filterParamsMap, filtersDtos, "secondary");
+                              Map<String, String> filterParamsSecondary = extractFilterParams(workingFilterParams, filtersDtos, "secondary");
 
                               String whereClause = "";
 
@@ -212,23 +218,57 @@ public class DataAssetRepositoryImpl implements DataAssetRepository {
 
                               }else {
 
-                                             whereClause = !getWhereClause(filterParamsPrimary).isEmpty() ? getWhereClause(filterParamsPrimary) : " where";
+                                             whereClause = !getWhereClause(filterParamsPrimary).isEmpty() ? getWhereClause(filterParamsPrimary) : " WHERE";
 
                               }
+
+               if (rdhLastIngestionTimestamp != null && !rdhLastIngestionTimestamp.isEmpty()) {
+
+                              String rdhCondition = "left(regexp_replace(coalesce(jsondata->>'rdhLastIngestionTimestamp',''), '[^0-9]', '', 'g'), 8) > replace(:rdhLastIngestionTimestamp, '-', '')";
+
+                              if (whereClause.isEmpty()) {
+
+                                             whereClause = " WHERE " + rdhCondition;
+
+                              } else if ("WHERE".equalsIgnoreCase(whereClause.trim())) {
+
+                                             whereClause = whereClause + " " + rdhCondition;
+
+                              } else {
+
+                                             whereClause = whereClause + AND + rdhCondition;
+
+                              }
+
+               }
 
                               String nestedWhereClause = getWhereClauseSecondary(filterParamsSecondary);
 
                               String nestedCondition = " EXISTS (SELECT 1 FROM jsonb_array_elements(jsondata->'coreBankingSourceSystemReferenceData') AS elem";
 
-                              String selectSql = buildSelectSql(tableName, whereClause, nestedWhereClause, !filterParamsSecondary.isEmpty(), !filterParamsPrimary.isEmpty());
+                              boolean hasRootWhereCondition = !whereClause.isBlank() && !"WHERE".equalsIgnoreCase(whereClause.trim());
+
+                              String selectSql = buildSelectSql(tableName, whereClause, nestedWhereClause, !filterParamsSecondary.isEmpty(), hasRootWhereCondition);
 
                               String selectSqlWithPagination= selectSql + ORDER_BY_LIMIT_OFFSET;
 
-                              String countSql = buildCountSql(tableName, whereClause, nestedCondition, nestedWhereClause, !filterParamsSecondary.isEmpty(), !filterParamsPrimary.isEmpty());
+                              String countSql = buildCountSql(tableName, whereClause, nestedCondition, nestedWhereClause, !filterParamsSecondary.isEmpty(), hasRootWhereCondition);
 
  
 
-                              MapSqlParameterSource selectSqlParams = getSelectSqlParams(page, filterParamsMap);
+                              Map<String, String> allFilterParams = new HashMap<>();
+
+                              allFilterParams.putAll(filterParamsPrimary);
+
+                              allFilterParams.putAll(filterParamsSecondary);
+
+                              if (rdhLastIngestionTimestamp != null && !rdhLastIngestionTimestamp.isEmpty()) {
+
+                                             allFilterParams.put("rdhLastIngestionTimestamp", rdhLastIngestionTimestamp);
+
+                              }
+
+                              MapSqlParameterSource selectSqlParams = getSelectSqlParams(page, allFilterParams);
 
  
 
@@ -266,7 +306,15 @@ public class DataAssetRepositoryImpl implements DataAssetRepository {
 
                                              log.error("xMatter Alert Trigger - RefdataGenericAPI Exception occurred in DataAssetRepositoryImpl - findAllCoreBankingDetails(): Query failed!: ", e);
 
-                                             throw new InvalidRequestParamException(FAILED_TO_GET_REQUESTED_DATA);
+                                             String rootCauseMsg = e.getCause() != null ? e.getCause().getMessage() : e.getMessage();
+
+                                             String errorMsg = (rootCauseMsg == null || rootCauseMsg.isBlank())
+
+                                                            ? FAILED_TO_GET_REQUESTED_DATA
+
+                                                            : FAILED_TO_GET_REQUESTED_DATA + " - " + rootCauseMsg;
+
+                                             throw new InvalidRequestParamException(errorMsg);
 
                               }
 
@@ -562,11 +610,29 @@ public class DataAssetRepositoryImpl implements DataAssetRepository {
 
                                                             .forEach(filter -> {
 
-                                                                           String key = filter.getFilterName();
+                                                                           String jsonAttribute = normalizeFilterKey(filter.getJsonAttribute());
 
-                                                                           if (filterParamsMap.containsKey(key)) {
+                                                                           String filterName = normalizeFilterKey(filter.getFilterName());
 
-                                                                                          extractedParams.put(key, filterParamsMap.get(key));
+                                                                           String resolvedKey = StringUtils.hasText(jsonAttribute) ? jsonAttribute : filterName;
+
+
+
+                                                                           if (!StringUtils.hasText(resolvedKey)) {
+
+                                                                                          return;
+
+                                                                           }
+
+
+
+                                                                           if (filterParamsMap.containsKey(resolvedKey)) {
+
+                                                                                          extractedParams.put(resolvedKey, filterParamsMap.get(resolvedKey));
+
+                                                                           } else if (filterParamsMap.containsKey(filterName)) {
+
+                                                                                          extractedParams.put(resolvedKey, filterParamsMap.get(filterName));
 
                                                                            }
 
@@ -576,13 +642,31 @@ public class DataAssetRepositoryImpl implements DataAssetRepository {
 
                }
 
+
+
+               private String normalizeFilterKey(String key) {
+
+                              return key == null ? null : key.trim();
+
+               }
+
  
 
                private String buildSelectSql(String tableName, String whereClause, String nestedWhereClause, boolean hasSecondary, boolean hasPrimary) {
 
                               if (hasPrimary && hasSecondary) {
 
-                                             return selectQueryForPrimaryAndNested() + nestedWhereClause+ whereClauseForPrimaryAndNestedQuery() + whereClause  ;
+                                             String existsCondition = "EXISTS (SELECT 1 FROM jsonb_array_elements(jsondata->'coreBankingSourceSystemReferenceData') AS elem"
+
+                                                            + nestedWhereClause + " )";
+
+                                             return selectQueryForPrimaryAndNested()
+
+                                                            + nestedWhereClause
+
+                                                            + whereClauseForPrimaryAndNestedQuery()
+
+                                                            + appendCondition(whereClause, existsCondition);
 
                               } else if (hasSecondary) {
 
@@ -593,6 +677,26 @@ public class DataAssetRepositoryImpl implements DataAssetRepository {
                                              return "SELECT * FROM " + tableName + (whereClause.isEmpty() ? "" : whereClause);
 
                               }
+
+               }
+
+
+
+               private String appendCondition(String whereClause, String condition) {
+
+                              if (whereClause == null || whereClause.isBlank()) {
+
+                                             return " WHERE " + condition;
+
+                              }
+
+                              if ("WHERE".equalsIgnoreCase(whereClause.trim())) {
+
+                                             return whereClause + " " + condition;
+
+                              }
+
+                              return whereClause + AND + condition;
 
                }
 
@@ -790,7 +894,17 @@ public class DataAssetRepositoryImpl implements DataAssetRepository {
 
                               filterParamsMap.remove("guid");
 
-                              filterParamsMap.forEach((key, value) -> where.add("jsondata->>'" + key + "' = :" + key));
+                              filterParamsMap.forEach((key, value) -> {
+
+                                             String normalizedKey = normalizeFilterKey(key);
+
+                                             if (StringUtils.hasText(normalizedKey)) {
+
+                                                            where.add("jsondata->>'" + normalizedKey + "' = :" + normalizedKey);
+
+                                             }
+
+                              });
 
                               return where.toString();
 
@@ -806,7 +920,25 @@ public class DataAssetRepositoryImpl implements DataAssetRepository {
 
                               filterParamsMap.remove("guid");
 
-                              filterParamsMap.forEach((key, value) -> where.add("elem->>'" + key + "' = :" + key));
+                              filterParamsMap.forEach((key, value) -> {
+
+                                             String normalizedKey = normalizeFilterKey(key);
+
+                                             if (StringUtils.hasText(normalizedKey)) {
+
+                                                            if ("countryCode".equalsIgnoreCase(normalizedKey) || "sourceSystemName".equalsIgnoreCase(normalizedKey)) {
+
+                                                                           where.add("lower(trim(elem->>'" + normalizedKey + "')) = lower(trim(:" + normalizedKey + "))");
+
+                                                            } else {
+
+                                                                           where.add("elem->>'" + normalizedKey + "' = :" + normalizedKey);
+
+                                                            }
+
+                                             }
+
+                              });
 
                               return where.toString();
 
