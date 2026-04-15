@@ -1,0 +1,42 @@
+{
+  "notificationID": "<UUID>",
+  "notificationType": "DataReadiness",
+  "schemaVersion": "https//radar.hsbc/schemas/notifications/datareadiness/v1.0",
+  "createdDateTime": "<ISO_OFFSET_DATE_TIME in +05:30 timezone>",
+  "notificationData": {
+    "publisher": {
+      "identifier": {
+        "issuer": "EIM",
+        "type": "appInstId",
+        "id": "<eimId from config>"
+      },
+      "name": "<publisherName from ClientConfig>",
+      "publication": {
+        "id": "<publicationId from ClientConfig>",
+        "description": "<publicationName from ClientConfig>"
+      }
+    },
+    "dataSet": {
+      "status": "Ready",
+      "statusChangedDateTime": "<ISO format in UTC>",
+      "items": [
+        {
+          "itemType": "Logical_Asset",
+          "itemName": "<assetType from PubSub>",
+          "recordCount": <recordCount from PubSub>
+        }
+      ],
+      "additionalInfo": [
+        {
+          "assetCode": "<assetCode from PubSub>",
+          "version": "<version from PubSub>",
+          "status": "<status from PubSub>",
+          "runId": "<runId from PubSub>",
+          "sourceType": "<sourceType from PubSub>",
+          "reportingDate": "<reportingDate from PubSub>",
+          "rdhLastIngestionDate": "<rdhLastIngestionDate from PubSub>"
+        }
+      ]
+    }
+  }
+}
