@@ -160,9 +160,9 @@ public class ClientApiService {
 
                                                         RadarNotificationPayload.Publication.builder()
 
-                                                                .productId(clientConfig.getPublicationId())
+                                                                .productId(extractProductIdFromItemName(notificationPayload.getData().getAssetType()))
 
-                                                                .description(clientConfig.getPublicationId())
+                                                                .description(extractProductIdFromItemName(notificationPayload.getData().getAssetType()))
 
                                                                 .build()
 
@@ -218,7 +218,7 @@ public class ClientApiService {
 
         String json = req.toJson();
 
-        log.debug("Generated client JSON: {}", json);
+        log.info("Generated client JSON: {}", json);
 
         return json;
 
@@ -377,6 +377,30 @@ public class ClientApiService {
             return null;
 
         }
+
+    }
+
+ 
+
+    private static String extractProductIdFromItemName(String itemName) {
+
+        if (itemName == null) {
+
+            return null;
+
+        }
+
+        // Remove '_DATA_ASSET_AUTH_VW' suffix if present
+
+        String suffix = "_DATA_ASSET_AUTH_VW";
+
+        if (itemName.endsWith(suffix)) {
+
+            return itemName.substring(0, itemName.length() - suffix.length());
+
+        }
+
+        return itemName;
 
     }
 
